@@ -91,10 +91,10 @@ func nodejsClientHelloSpec() *tls.ClientHelloSpec {
 			// 0x000B - ec_point_formats [uncompressed, ansiX962_compressed_prime, ansiX962_compressed_char2]
 			&tls.SupportedPointsExtension{SupportedPoints: []byte{0x00, 0x01, 0x02}},
 			// 0x000A - supported_groups
-			// 注意：MLKEM768_X25519 (0x11EC) 是 Node.js v22.x 新版才支持的后量子算法，
-			// utls 对其 key_share 生成存在兼容性问题，故此处不列入。
-			// 保留 x448 和 FFDHE 组以匹配 OpenSSL 3.0.x 默认配置。
+			// 含后量子混合密钥交换 MLKEM768_X25519 (0x11EC)、x448 和 FFDHE 组，
+			// 匹配 Node.js v22.x / OpenSSL 3.0.x 默认配置。
 			&tls.SupportedCurvesExtension{Curves: []tls.CurveID{
+				tls.X25519MLKEM768,                // 0x11EC - 后量子混合密钥交换
 				tls.X25519,                        // 0x001D
 				tls.CurveP256,                     // 0x0017
 				tls.CurveID(0x001E),               // x448
@@ -105,6 +105,10 @@ func nodejsClientHelloSpec() *tls.ClientHelloSpec {
 			}},
 			// 0x0023 - session_ticket
 			&tls.SessionTicketExtension{},
+			// 0x0010 - ALPN（协商 HTTP/2 所必需）
+			// 抓包中 Node.js https 模块未发送 ALPN，但 utlsRoundTripper 需要 HTTP/2，
+			// 若不声明 h2，服务器将回退 HTTP/1.1 导致帧解析失败。
+			&tls.ALPNExtension{AlpnProtocols: []string{"h2", "http/1.1"}},
 			// 0x0016 - encrypt_then_mac（OpenSSL 特有，Chrome 不发送此扩展）
 			// utls 没有内置此扩展类型，使用 GenericExtension 实现
 			&tls.GenericExtension{Id: 0x0016, Data: []byte{}},
@@ -149,9 +153,10 @@ func nodejsClientHelloSpec() *tls.ClientHelloSpec {
 			&tls.PSKKeyExchangeModesExtension{Modes: []uint8{tls.PskModeDHE}},
 			// 0x0033 - key_share
 			// utls 会自动为列出的组生成密钥交换数据。
-			// 只发送 x25519 的 key_share（与 supported_groups 保持一致）。
+			// 抓包显示 Node.js 发送了 MLKEM768_X25519 和 x25519 两个 key_share。
 			&tls.KeyShareExtension{KeyShares: []tls.KeyShare{
-				{Group: tls.X25519}, // 0x001D（32 字节密钥）
+				{Group: tls.X25519MLKEM768}, // 0x11EC - 后量子混合（1216 字节密钥）
+				{Group: tls.X25519},         // 0x001D（32 字节密钥）
 			}},
 		},
 	}
