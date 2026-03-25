@@ -198,6 +198,30 @@ type RoutingConfig struct {
 	// Strategy selects the credential selection strategy.
 	// Supported values: "round-robin" (default), "fill-first".
 	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
+
+	// Throttle 配置每个账号的请求频率控制，用于模拟人类操作节奏。
+	// 所有阈值默认为 0（不限制），仅在显式配置后生效。
+	Throttle ThrottleConfig `yaml:"throttle,omitempty" json:"throttle,omitempty"`
+}
+
+// ThrottleConfig 控制每个上游账号的请求频率和并发数。
+// 通过设置最小请求间隔、RPM 上限和并发限制来模拟自然的人类使用模式。
+type ThrottleConfig struct {
+	// MinIntervalMs 每个账号两次请求之间的最小间隔（毫秒）。
+	// 当请求间隔不足时，后续请求将等待至间隔满足。
+	// 建议值：2000-3000（模拟人类切换窗口和打字的节奏）。
+	// 默认 0 表示不限制。
+	MinIntervalMs int `yaml:"min-interval-ms,omitempty" json:"min-interval-ms,omitempty"`
+
+	// MaxRPM 每个账号每分钟允许的最大请求数（滑动窗口）。
+	// 超过上限时请求将等待窗口内最早的请求过期。
+	// 默认 0 表示不限制。
+	MaxRPM int `yaml:"max-rpm,omitempty" json:"max-rpm,omitempty"`
+
+	// MaxConcurrency 每个账号允许的最大并发请求数。
+	// 超过上限时请求将排队等待，直到有空闲槽位或请求超时。
+	// 默认 0 表示不限制。
+	MaxConcurrency int `yaml:"max-concurrency,omitempty" json:"max-concurrency,omitempty"`
 }
 
 // OAuthModelAlias defines a model ID alias for a specific channel.
@@ -569,6 +593,10 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.Pprof.Addr = DefaultPprofAddr
 	cfg.AmpCode.RestrictManagementToLocalhost = false // Default to false: API key auth is sufficient
 	cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
+	// 节流器默认值：模拟自然人类使用节奏
+	cfg.Routing.Throttle.MinIntervalMs = 2000  // 每账号最小 2 秒间隔
+	cfg.Routing.Throttle.MaxRPM = 30           // 每账号每分钟最多 30 次请求
+	cfg.Routing.Throttle.MaxConcurrency = 2    // 每账号最多 2 并发
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
 		if optional {
 			// In cloud deploy mode, if YAML parsing fails, return empty config instead of error.

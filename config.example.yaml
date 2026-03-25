@@ -91,6 +91,12 @@ quota-exceeded:
 # Routing strategy for selecting credentials when multiple match.
 routing:
   strategy: "round-robin" # round-robin (default), fill-first
+  # 请求节流：模拟人类操作节奏，防止异常请求模式被检测。
+  # 所有值设为 0 可完全禁用对应限制。
+  throttle:
+    min-interval-ms: 2000  # 每账号最小请求间隔（毫秒），默认 2000
+    max-rpm: 30            # 每账号每分钟最大请求数，默认 30
+    max-concurrency: 2     # 每账号最大并发请求数，默认 2
 
 # When true, enable authentication for the WebSocket API (/v1/ws).
 ws-auth: false

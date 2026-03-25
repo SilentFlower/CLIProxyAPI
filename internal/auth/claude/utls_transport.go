@@ -95,9 +95,10 @@ func (t *utlsRoundTripper) getOrCreateConnection(host, addr string) (*http2.Clie
 	return h2Conn, nil
 }
 
-// createConnection creates a new HTTP/2 connection with Chrome TLS fingerprint.
-// Chrome's TLS fingerprint is closer to Node.js/OpenSSL (which real Claude Code uses)
-// than Firefox, reducing the mismatch between TLS layer and HTTP headers.
+// createConnection creates a new HTTP/2 connection with Node.js TLS fingerprint.
+// Uses a custom ClientHelloSpec that exactly matches Node.js v22.x / OpenSSL 3.0.x,
+// ensuring the TLS fingerprint is consistent with the HTTP-layer identity headers
+// (User-Agent, X-Stainless-Runtime-Version) that declare a Node.js client.
 func (t *utlsRoundTripper) createConnection(host, addr string) (*http2.ClientConn, error) {
 	conn, err := t.dialer.Dial("tcp", addr)
 	if err != nil {
@@ -105,7 +106,11 @@ func (t *utlsRoundTripper) createConnection(host, addr string) (*http2.ClientCon
 	}
 
 	tlsConfig := &tls.Config{ServerName: host}
-	tlsConn := tls.UClient(conn, tlsConfig, tls.HelloChrome_Auto)
+	tlsConn := tls.UClient(conn, tlsConfig, tls.HelloCustom)
+	if err := tlsConn.ApplyPreset(nodejsClientHelloSpec()); err != nil {
+		conn.Close()
+		return nil, err
+	}
 
 	if err := tlsConn.Handshake(); err != nil {
 		conn.Close()

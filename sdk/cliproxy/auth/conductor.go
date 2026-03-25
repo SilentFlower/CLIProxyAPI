@@ -135,6 +135,8 @@ type Manager struct {
 	mu        sync.RWMutex
 	auths     map[string]*Auth
 	scheduler *authScheduler
+	// throttler 控制每个上游账号的请求频率和并发数，防止异常请求模式被检测。
+	throttler *authThrottler
 	// providerOffsets tracks per-model provider rotation state for multi-provider routing.
 	providerOffsets map[string]int
 
@@ -254,6 +256,20 @@ func (m *Manager) SetStore(store Store) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.store = store
+}
+
+// SetThrottle 设置或更新请求节流器的配置。
+// 当所有参数为 0 时，节流器处于禁用状态。
+// 线程安全，可在运行时热重载配置时调用。
+func (m *Manager) SetThrottle(minIntervalMs, maxRPM, maxConcurrency int) {
+	if m == nil {
+		return
+	}
+	if m.throttler == nil {
+		m.throttler = newAuthThrottler(minIntervalMs, maxRPM, maxConcurrency)
+	} else {
+		m.throttler.UpdateConfig(minIntervalMs, maxRPM, maxConcurrency)
+	}
 }
 
 // SetRoundTripperProvider register a provider that returns a per-auth RoundTripper.
@@ -1098,6 +1114,23 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
 		}
 
+		// 请求节流：等待最小间隔和 RPM 窗口
+		if m.throttler != nil && m.throttler.Enabled() {
+			if wait := m.throttler.Acquire(auth.ID); wait > 0 {
+				if errWait := waitForCooldown(execCtx, wait); errWait != nil {
+					return cliproxyexecutor.Response{}, errWait
+				}
+			}
+		}
+		// 并发控制：获取并发槽位
+		if m.throttler != nil && m.throttler.ConcurrencyEnabled() {
+			release, errConc := m.throttler.AcquireConcurrency(execCtx, auth.ID)
+			if errConc != nil {
+				return cliproxyexecutor.Response{}, errConc
+			}
+			defer release()
+		}
+
 		models, pooled := m.preparedExecutionModels(auth, routeModel)
 		if len(models) == 0 {
 			continue
@@ -1260,6 +1293,22 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 		if rt := m.roundTripperFor(auth); rt != nil {
 			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
 			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
+		}
+		// 请求节流：等待最小间隔和 RPM 窗口
+		if m.throttler != nil && m.throttler.Enabled() {
+			if wait := m.throttler.Acquire(auth.ID); wait > 0 {
+				if errWait := waitForCooldown(execCtx, wait); errWait != nil {
+					return nil, errWait
+				}
+			}
+		}
+		// 并发控制：获取并发槽位
+		if m.throttler != nil && m.throttler.ConcurrencyEnabled() {
+			release, errConc := m.throttler.AcquireConcurrency(execCtx, auth.ID)
+			if errConc != nil {
+				return nil, errConc
+			}
+			defer release()
 		}
 		models, pooled := m.preparedExecutionModels(auth, routeModel)
 		if len(models) == 0 {

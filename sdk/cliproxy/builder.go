@@ -225,6 +225,14 @@ func (b *Builder) Build() (*Service, error) {
 	coreManager.SetRoundTripperProvider(newDefaultRoundTripperProvider())
 	coreManager.SetConfig(b.cfg)
 	coreManager.SetOAuthModelAlias(b.cfg.OAuthModelAlias)
+	// 初始化请求节流器（所有值为 0 时不生效）
+	if b.cfg != nil {
+		coreManager.SetThrottle(
+			b.cfg.Routing.Throttle.MinIntervalMs,
+			b.cfg.Routing.Throttle.MaxRPM,
+			b.cfg.Routing.Throttle.MaxConcurrency,
+		)
+	}
 
 	service := &Service{
 		cfg:            b.cfg,

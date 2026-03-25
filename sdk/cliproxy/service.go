@@ -659,6 +659,12 @@ func (s *Service) Run(ctx context.Context) error {
 		if s.coreManager != nil {
 			s.coreManager.SetConfig(newCfg)
 			s.coreManager.SetOAuthModelAlias(newCfg.OAuthModelAlias)
+			// 热重载请求节流器配置
+			s.coreManager.SetThrottle(
+				newCfg.Routing.Throttle.MinIntervalMs,
+				newCfg.Routing.Throttle.MaxRPM,
+				newCfg.Routing.Throttle.MaxConcurrency,
+			)
 		}
 		s.rebindExecutors()
 	}
