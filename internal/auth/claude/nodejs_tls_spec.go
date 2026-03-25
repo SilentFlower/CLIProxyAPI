@@ -91,9 +91,10 @@ func nodejsClientHelloSpec() *tls.ClientHelloSpec {
 			// 0x000B - ec_point_formats [uncompressed, ansiX962_compressed_prime, ansiX962_compressed_char2]
 			&tls.SupportedPointsExtension{SupportedPoints: []byte{0x00, 0x01, 0x02}},
 			// 0x000A - supported_groups
-			// 含后量子混合密钥交换 MLKEM768_X25519 (0x11EC)、x448 和 FFDHE 组
+			// 注意：MLKEM768_X25519 (0x11EC) 是 Node.js v22.x 新版才支持的后量子算法，
+			// utls 对其 key_share 生成存在兼容性问题，故此处不列入。
+			// 保留 x448 和 FFDHE 组以匹配 OpenSSL 3.0.x 默认配置。
 			&tls.SupportedCurvesExtension{Curves: []tls.CurveID{
-				tls.X25519MLKEM768,                // 0x11EC - 后量子混合密钥交换
 				tls.X25519,                        // 0x001D
 				tls.CurveP256,                     // 0x0017
 				tls.CurveID(0x001E),               // x448
@@ -148,10 +149,9 @@ func nodejsClientHelloSpec() *tls.ClientHelloSpec {
 			&tls.PSKKeyExchangeModesExtension{Modes: []uint8{tls.PskModeDHE}},
 			// 0x0033 - key_share
 			// utls 会自动为列出的组生成密钥交换数据。
-			// 抓包显示 Node.js 发送了 MLKEM768_X25519 和 x25519 两个 key_share。
+			// 只发送 x25519 的 key_share（与 supported_groups 保持一致）。
 			&tls.KeyShareExtension{KeyShares: []tls.KeyShare{
-				{Group: tls.X25519MLKEM768}, // 0x11EC - 后量子混合（1216 字节密钥）
-				{Group: tls.X25519},         // 0x001D（32 字节密钥）
+				{Group: tls.X25519}, // 0x001D（32 字节密钥）
 			}},
 		},
 	}
